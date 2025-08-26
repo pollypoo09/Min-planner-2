@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minimalist Planner</title>
+<style>
+body { font-family:"Helvetica",sans-serif; margin:0; padding:0; background:#fdfaf6; color:#333; }
+header { background:#f5f2ee; padding:20px; text-align:center; font-size:1.8em; font-weight:500; }
+nav { display:flex; justify-content:space-around; background:#f5f2ee; }
+nav button { flex:1; padding:12px; border:none; background:none; font-size:1em; cursor:pointer; font-weight:500; }
+nav button.active { border-bottom:2px solid #c9bba0; color:#c9bba0; }
+.view { display:none; padding:15px; }
+input[type=text], input[type=number], select { width:70%; padding:8px; border:1px solid #ccc; border-radius:5px; font-size:1em; margin-bottom:5px; }
+button.add, button.sticker { padding:8px 12px; margin-left:5px; background:#c9bba0; border:none; color:white; border-radius:5px; cursor:pointer; font-weight:500; }
+ul { list-style:none; padding:0; margin:10px 0; }
+li { background:white; margin:5px 0; padding:10px; border-radius:5px; display:flex; justify-content:space-between; align-items:center; font-size:0.95em; }
+li.completed { text-decoration:line-through; opacity:0.6; }
+button.delete { background:#a89d87; color:white; border:none; border-radius:5px; cursor:pointer; padding:4px 8px; }
+.week-container, .month-container { display:flex; flex-wrap:wrap; justify-content:space-between; }
+.day-column, .month-day { background:white; border-radius:5px; padding:10px; margin:5px 0; flex:1; min-width:120px; box-sizing:border-box; position:relative;}
+.month-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:5px; margin-top:10px; }
+.month-day span { font-weight:600; font-size:0.85em; cursor:pointer; }
+.collapsed ul { display:none; }
+.today { border: 2px solid #c9bba0; background-color:#f9f5ee; }
+h2 { margin-top:0; font-weight:500; }
+.section-title { margin-top:15px; font-weight:600; }
+.stickers { font-size:1.2em; position:absolute; top:5px; right:5px; }
+.weekend { background:#fef9f2; }
+#stickerPicker { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:15px; border-radius:10px; box-shadow:0 0 10px rgba(0,0,0,0.3); z-index:1000; }
+#stickerOptions { display:flex; flex-wrap:wrap; gap:5px; max-width:300px; margin-bottom:10px; }
+</style>
+</head>
+<body>
+
+<header>Minimalist Planner</header>
+
+<nav>
+<button id="dailyBtn" class="active">Daily</button>
+<button id="weeklyBtn">Weekly</button>
+<button id="monthlyBtn">Monthly</button>
+<button id="yearlyBtn">Yearly</button>
+</nav>
+
+<!-- Daily View -->
+<div id="daily" class="view" style="display:block;">
+<h2>Daily Tasks</h2>
+<ul id="dailyBirthdayList"></ul> <!-- Birthday alerts -->
+<input type="text" id="dailyInput" placeholder="Add a task">
+<button class="add" onclick="addTask('daily')">Add</button>
+<ul id="dailyList"></ul>
+
+<div class="section-title">Daily Routine</div>
+<input type="text" id="dailyRoutineInput" placeholder="Add a routine">
+<button class="add" onclick="addRoutine('daily')">Add</button>
+<ul id="dailyRoutineList"></ul>
+</div>
+
+<!-- Weekly View -->
+<div id="weekly" class="view">
+<h2>Weekly Tasks</h2>
+<div class="week-container" id="weekContainer"></div>
+
+<div class="section-title">Weekly Routine</div>
+<input type="text" id="weeklyRoutineInput" placeholder="Add a routine">
+<button class="add" onclick="addRoutine('weekly')">Add</button>
+<ul id="weeklyRoutineList"></ul>
+</div>
+
+<!-- Monthly View -->
+<div id="monthly" class="view">
+<h2 id="monthTitle">Month</h2>
+<div>
+<select id="monthSelect"></select>
+<input type="number" id="yearInput" min="1900" max="2100" style="width:30%">
+<button class="add" onclick="updateMonth()">Go</button>
+</div>
+<div id="weekdayHeader" style="display:grid; grid-template-columns:repeat(7,1fr); margin-top:10px; font-weight:600; text-align:center;"></div>
+<div class="month-grid" id="monthGrid"></div>
+</div>
+
+<!-- Yearly/Birthday View -->
+<div id="yearly" class="view">
+<h2>Birthdays</h2>
+<input type="text" id="birthdayName" placeholder="Name">
+<input type="number" id="birthdayMonth" placeholder="Month (1-12)" min="1" max="12">
+<input type="number" id="birthdayDay" placeholder="Day (1-31)" min="1" max="31">
+<button class="add" onclick="addBirthday()">Add Birthday</button>
+<ul id="birthdayList"></ul>
+</div>
+
+<!-- Sticker Picker Modal -->
+<div id="stickerPicker">
+<div id="stickerOptions"></div>
+<button class="add" onclick="closeStickerPicker()">Close</button>
+</div>
+
+<script>
+// --- Data ---
+let tasks = JSON.parse(localStorage.getItem('plannerTasks')) || {
+daily: [], weekly: {}, monthly: {}, dailyRoutine: [], weeklyRoutine: [], monthlyStickers:{}, birthdays:[]
+};
+let selectedStickerDay = null;
+
+// --- Navigation ---
+document.getElementById('dailyBtn').onclick = () => showView('daily');
+document.getElementById('weeklyBtn').onclick = () => showView('weekly');
+document.getElementById('monthlyBtn').onclick = () => showView('monthly');
+document.getElementById('yearlyBtn').onclick = () => showView('yearly');
+
+function showView(view) {
+document.querySelectorAll('.view').forEach(v => v.style.display='none');
+document.getElementById(view).style.display='block';
+document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+document.getElementById(view+'Btn').classList.add('active');
+if(view==='weekly') renderWeek();
+if(view==='monthly') renderMonth();
+if(view==='daily') { renderTasks('daily'); renderBirthdayAlerts(); }
+if(view==='yearly') renderBirthdays();
+renderRoutine();
+}
+
+// --- Save ---
+function saveTasks(){ localStorage.setItem('plannerTasks', JSON.stringify(tasks)); }
+
+// --- Routine ---
+function addRoutine(type){
+let input=document.getElementById(type+'RoutineInput'); let value=input.value.trim();
+if(!value) return;
+tasks[type+'Routine'].push({title:value,completed:false}); input.value=''; saveTasks(); renderRoutine();
+}
+function toggleRoutine(type,i){ tasks[type+'Routine'][i].completed=!tasks[type+'Routine'][i].completed; saveTasks(); renderRoutine(); }
+function deleteRoutine(type,i){ tasks[type+'Routine'].splice(i,1); saveTasks(); renderRoutine(); }
+function renderRoutine(){
+let dailyList=document.getElementById('dailyRoutineList'); dailyList.innerHTML='';
+tasks.dailyRoutine.forEach((t,i)=>{ let li=document.createElement('li'); li.className=t.completed?'completed':''; li.innerHTML=`<span onclick="toggleRoutine('daily',${i})">${t.title}</span><button class="delete" onclick="deleteRoutine('daily',${i})">X</button>`; dailyList.appendChild(li); });
+let weeklyList=document.getElementById('weeklyRoutineList'); weeklyList.innerHTML='';
+tasks.weeklyRoutine.forEach((t,i)=>{ let li=document.createElement('li'); li.className=t.completed?'completed':''; li.innerHTML=`<span onclick="toggleRoutine('weekly',${i})">${t.title}</span><button class="delete" onclick="deleteRoutine('weekly',${i})">X</button>`; weeklyList.appendChild(li); });
+}
+
+// --- Daily Tasks ---
+function addTask(type){ let input=document.getElementById(type+'Input'); let value=input.value.trim(); if(!value)return; tasks[type].push({title:value,completed:false}); input.value=''; saveTasks(); renderTasks(type);}
+function toggleTask(type,i){ tasks[type][i].completed=!tasks[type][i].completed; saveTasks(); renderTasks(type);}
+function deleteTask(type,i){ tasks[type].splice(i,1); saveTasks(); renderTasks(type);}
+function renderTasks(type){
+let list=document.getElementById(type+'List'); list.innerHTML='';
+let today=new Date();
+let monthTasks=tasks.monthly[today.getFullYear()]?.[today.getMonth()]||{};
+let day=today.getDate();
+let combined=[...tasks[type], ...(monthTasks[day]?.tasks||[])];
+combined.forEach((t,i)=>{ let li=document.createElement('li'); li.className=t.completed?'completed':''; li.innerHTML=`<span onclick="toggleTask('${type}',${i})">${t.title}</span><button class="delete" onclick="deleteTask('${type}',${i})">X</button>`; list.appendChild(li); });
+}
+
+// --- Birthday Functions ---
+function addBirthday(){
+let name=document.getElementById('birthdayName').value.trim();
+let month=parseInt(document.getElementById('birthdayMonth').value)-1;
+let day=parseInt(document.getElementById('birthdayDay').value);
+if(!name || isNaN(month) || isNaN(day)) return;
+tasks.birthdays.push({name,month,day}); document.getElementById('birthdayName').value=''; document.getElementById('birthdayMonth').value=''; document.getElementById('birthdayDay').value='';
+saveTasks(); renderBirthdays(); renderBirthdayAlerts(); renderMonth();
+}
+function deleteBirthday(index){ tasks.birthdays.splice(index,1); saveTasks(); renderBirthdays(); renderBirthdayAlerts(); renderMonth(); }
+function renderBirthdays(){
+let list=document.getElementById('birthdayList'); list.innerHTML='';
+tasks.birthdays.forEach((b,i)=>{ let li=document.createElement('li'); li.innerHTML=`${b.name} - ${b.month+1}/${b.day} <button class="delete" onclick="deleteBirthday(${i})">X</button>`; list.appendChild(li); });
+}
+function renderBirthdayAlerts(){
+let list=document.getElementById('dailyBirthdayList'); list.innerHTML='';
+let today=new Date();
+tasks.birthdays.forEach(b=>{
+if(b.month===today.getMonth() && b.day===today.getDate()){
+let li=document.createElement('li');
+li.innerHTML=`🎂 Today is ${b.name}'s Birthday!`;
+list.appendChild(li);
+}
+});
+}
+
+// --- Month Setup ---
+const weekdays=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const monthNames=['January','February','March','April','May','June','July','August','September','October','November','December'];
+let currentMonth=new Date().getMonth();
+let currentYear=new Date().getFullYear();
+
+function initMonthSelector(){ let select=document.getElementById('monthSelect'); monthNames.forEach((m,i)=>{ let o=document.createElement('option'); o.value=i;o.text=m;if(i===currentMonth)o.selected=true; select.appendChild(o);}); document.getElementById('yearInput').value=currentYear;}
+initMonthSelector();
+
+function updateMonth(){ currentMonth=parseInt(document.getElementById('monthSelect').value); currentYear=parseInt(document.getElementById('yearInput').value); renderMonth(); }
+
+function renderMonth(){
+let today=new Date(); document.getElementById('monthTitle').innerText=monthNames[currentMonth]+' '+currentYear;
+const header=document.getElementById('weekdayHeader'); header.innerHTML=''; ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(d=>{ let div=document.createElement('div'); div.innerText=d; header.appendChild(div); });
+let daysInMonth=new Date(currentYear,currentMonth+1,0).getDate(); let grid=document.getElementById('monthGrid'); grid.innerHTML=''; if(!tasks.monthly[currentYear]) tasks.monthly[currentYear]={}; if(!tasks.monthly[currentYear][currentMonth]) tasks.monthly[currentYear][currentMonth]={};
+let firstDay=(new Date(currentYear,currentMonth,1).getDay()+6)%7; for(let i=0;i<firstDay;i++){ let empty=document.createElement('div'); empty.className='month-day'; empty.style.background='transparent'; empty.style.border='none'; grid.appendChild(empty);}
+for(let d=1; d<=daysInMonth; d++){
+if(!tasks.monthly[currentYear][currentMonth][d]) tasks.monthly[currentYear][currentMonth][d]={tasks:[]};
+let div=document.createElement('div'); div.className='month-day collapsed'; if(currentYear===today.getFullYear()&&currentMonth===today.getMonth()&&d===today.getDate()) div.classList.add('today');
+
+// Birthday sticker check
+let birthdayStickers=tasks.birthdays.filter(b=>b.month===currentMonth && b.day===d).map(b=>'🎂').join('');
+
+let customStickers=(tasks.monthlyStickers[currentYear]?.[currentMonth]?.[d]||[]).join('');
+let allStickers=birthdayStickers + customStickers;
+
+div.innerHTML=`<div class="stickers">${allStickers}</div><span onclick="this.parentElement.classList.toggle('collapsed')">${d}</span><input type="text" placeholder="Add task" id="month-input-${d}"><button class="add" onclick="addMonthTask(${d})">Add</button><button class="sticker" onclick="openStickerPicker(${d})">+Sticker</button><ul id="month-list-${d}"></ul>`;
+grid.appendChild(div); renderMonthTasks(d);
+}
+}
+
+function addMonthTask(day){ let input=document.getElementById('month-input-'+day); let value=input.value.trim(); if(!value)return; tasks.monthly[currentYear][currentMonth][day].tasks.push({title:value,completed:false}); input.value=''; saveTasks(); renderMonth(); renderWeek(); renderTasks('daily'); }
+function toggleMonthTask(day,i){ tasks.monthly[currentYear][currentMonth][day].tasks[i].completed=!tasks.monthly[currentYear][currentMonth][day].tasks[i].completed; saveTasks(); renderMonth(); renderWeek(); renderTasks('daily'); }
+function deleteMonthTask(day,i){ tasks.monthly[currentYear][currentMonth][day].tasks.splice(i,1); saveTasks(); renderMonth(); renderWeek(); renderTasks('daily'); }
+function renderMonthTasks(day){ let list=document.getElementById('month-list-'+day); list.innerHTML=''; (tasks.monthly[currentYear][currentMonth][day].tasks||[]).forEach((t,i)=>{ let li=document.createElement('li'); li.className=t.completed?'completed':''; li.innerHTML=`<span onclick="toggleMonthTask(${day},${i})">${t.title}</span><button class="delete" onclick="deleteMonthTask(${day},${i})">X</button>`; list.appendChild(li); }); }
+
+// --- Initial Render ---
+showView('daily');
+
+</script>
+</body>
+</html>
